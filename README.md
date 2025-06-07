@@ -1,7 +1,7 @@
 
-streamlit>=1.22.0
-numpy>=1.23.0
-pillow>=9.3.0
-opencv-python>=4.6.0
-mediapipe>=0.10.0; python_version < '3.13'
-gitpython>=3.1.30
+streamlit==1.32.2
+numpy==1.26.4
+pillow==10.2.0
+opencv-python==4.9.0.80
+mediapipe==0.10.9
+gitpython==3.1.42
