@@ -3,10 +3,15 @@ import numpy as np
 from PIL import Image, ImageFilter, ImageEnhance
 import mediapipe as mp
 import io
-import base64
 import subprocess
 import tempfile
 import os
+import sys
+
+# Version check - must run on Python 3.11
+if sys.version_info >= (3, 12):
+    st.error("Python 3.12+ is not supported. Please use Python 3.11")
+    st.stop()
 
 # App Configuration
 st.set_page_config(
@@ -29,7 +34,7 @@ ASSET_BRANCHES = {
     "blush": "blush"
 }
 
-# Default asset files (these should exist in each branch)
+# Default asset files
 DEFAULT_ASSET_FILES = {
     "lashes": ["natural.png", "dramatic.png", "wispy.png"],
     "brows": ["natural.png", "bold.png"],
@@ -49,32 +54,27 @@ def get_face_mesh():
     )
 
 # Git Asset Loader
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)
 def load_asset_from_branch(branch_name, asset_file):
     """Load an asset file from a specific git branch"""
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            # Clone just the specific branch and file
+            # Clone just the specific branch
             subprocess.run([
-                "git", "clone", 
+                "git", "clone",
                 "--branch", branch_name,
                 "--depth", "1",
-                "--filter=blob:none",
-                "--sparse",
+                "--single-branch",
                 REPO_URL,
                 tmp_dir
-            ], check=True)
-            
-            # Checkout just the specific file
-            subprocess.run([
-                "git", "-C", tmp_dir,
-                "sparse-checkout", "set",
-                asset_file
-            ], check=True)
+            ], check=True, capture_output=True)
             
             asset_path = os.path.join(tmp_dir, asset_file)
             if os.path.exists(asset_path):
                 return Image.open(asset_path).convert("RGBA")
+            return None
+        except subprocess.CalledProcessError as e:
+            st.error(f"Git error: {e.stderr.decode()}")
             return None
         except Exception as e:
             st.error(f"Error loading asset: {str(e)}")
@@ -99,11 +99,11 @@ def feather_alpha(image):
 
 def apply_overlay(base_img, overlay, position, scale=1.0, angle=0.0, opacity=1.0):
     """Apply overlay with transformations"""
-    new_size = (int(overlay.width * scale), int(overlay.height * scale)
-    overlay = overlay.resize(new_size, Image.LANCZOS)
+    new_size = (int(overlay.width * scale), int(overlay.height * scale))
+    overlay = overlay.resize(new_size, Image.Resampling.LANCZOS)
     
     if angle != 0:
-        overlay = overlay.rotate(angle, expand=True, resample=Image.BILINEAR)
+        overlay = overlay.rotate(angle, expand=True, resample=Image.Resampling.BILINEAR)
     
     if opacity < 1.0:
         overlay = overlay.copy()
@@ -255,9 +255,78 @@ def main():
                 # Create enhanced image
                 enhanced_img = original_img.copy()
                 
-                # Apply all makeup (same as before)
-                # ... [rest of your application logic remains the same]
-
+                # Apply lashes
+                enhanced_img = apply_overlay(
+                    enhanced_img, lash_img,
+                    landmarks["left_eye"],
+                    scale=face_scale * lash_intensity,
+                    angle=-eye_angle
+                )
+                enhanced_img = apply_overlay(
+                    enhanced_img, lash_img,
+                    landmarks["right_eye"],
+                    scale=face_scale * lash_intensity,
+                    angle=-eye_angle
+                )
+                
+                # Apply brows
+                enhanced_img = apply_overlay(
+                    enhanced_img, brow_img,
+                    landmarks["left_brow"],
+                    scale=face_scale * brow_intensity,
+                    angle=-eye_angle * 0.7
+                )
+                enhanced_img = apply_overlay(
+                    enhanced_img, brow_img,
+                    landmarks["right_brow"],
+                    scale=face_scale * brow_intensity,
+                    angle=-eye_angle * 0.7
+                )
+                
+                # Apply lips
+                lip_position = (
+                    (landmarks["upper_lip"][0] + landmarks["lower_lip"][0]) // 2,
+                    (landmarks["upper_lip"][1] + landmarks["lower_lip"][1]) // 2
+                )
+                enhanced_img = apply_overlay(
+                    enhanced_img, lip_img,
+                    lip_position,
+                    scale=face_scale * lip_intensity,
+                    angle=-eye_angle * 0.3
+                )
+                
+                # Apply blush
+                enhanced_img = apply_overlay(
+                    enhanced_img, blush_img,
+                    landmarks["left_cheek"],
+                    scale=face_scale * blush_intensity * 0.8,
+                    opacity=blush_intensity
+                )
+                enhanced_img = apply_overlay(
+                    enhanced_img, blush_img,
+                    landmarks["right_cheek"],
+                    scale=face_scale * blush_intensity * 0.8,
+                    opacity=blush_intensity
+                )
+                
+                # Display results
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(original_img, caption="Original", width=DEFAULT_IMAGE_WIDTH)
+                with col2:
+                    st.image(enhanced_img, caption="Enhanced", width=DEFAULT_IMAGE_WIDTH)
+                
+                # Download button
+                buffered = io.BytesIO()
+                enhanced_img.convert("RGB").save(buffered, format="JPEG", quality=95)
+                st.download_button(
+                    "⬇️ Download Enhanced Photo",
+                    buffered.getvalue(),
+                    file_name="glowmatch_enhanced.jpg",
+                    mime="image/jpeg",
+                    use_container_width=True
+                )
+        
         except Exception as e:
             st.error(f"Error: {str(e)}")
     else:
