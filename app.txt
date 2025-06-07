@@ -1,3 +1,0 @@
-# GlowMatch v3.1 - 2.5D Selfie Realism Support
-
-print('GlowMatch Ready')
